@@ -1,0 +1,48 @@
+{
+    "name": "stakhanovist/worker",
+    "description": "",
+    "homepage": "https://github.com/stakhanovist/worker",
+    "license": "BSD-2-Clause",
+    "require": {
+        "php": ">=5.4.0",
+        "stakhanovist/queue" : "dev-develop",
+        "zendframework/zend-stdlib": "~2.4",
+        "zendframework/zend-servicemanager": "~2.4",
+        "zendframework/zend-mvc": "~2.4",
+        "zendframework/zend-eventmanager": "~2.4"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "~4.2",
+        "satooshi/php-coveralls": "dev-master"
+    },
+    "authors": [
+        {
+            "name": "Leonardo Grasso",
+            "email": "me@leonardograsso.com",
+            "homepage": "http://github.com/leogr"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+        	"Stakhanovist\\Worker\\": "library/",
+        	"StakhanovistTest\\Worker\\": "tests/"
+        }
+    },
+    "keywords": [
+        "worker",
+        "job",
+        "queue",
+        "tasks",
+        "jobqueue",
+        "jobworker"
+    ],
+    "extra": {
+        "branch-alias": {
+            "dev-master": "0.0.x-dev",
+            "dev-develop": "0.1.x-dev"
+        }
+    },
+    "suggest": {
+
+    }
+}
