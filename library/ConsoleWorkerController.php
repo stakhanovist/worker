@@ -96,11 +96,12 @@ class ConsoleWorkerController extends AbstractWorkerController
 
         $routeMatch = $e->getRouteMatch();
         if ($routeMatch instanceof RouteMatch) {
-            $message = $routeMatch->getParam('message', null);
-            if ($message && is_string($message)) {
+            $isSerialized = $routeMatch->getParam('serialized', null);
+            $message      = $routeMatch->getParam('message', null);
+            if ($isSerialized && is_string($message)) {
                 $routeMatch->setParam(
                     'message',
-                    $this->getSerializer()->unserialize(base64_decode($message))
+                    $this->getSerializer()->unserialize(base64_decode($message)) // TODO: improve
                 );
             }
         }
