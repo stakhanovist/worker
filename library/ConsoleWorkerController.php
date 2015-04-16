@@ -16,6 +16,9 @@ use Zend\Mvc\Router\RouteMatch;
 use Zend\Stdlib\RequestInterface;
 use Zend\Stdlib\ResponseInterface;
 use Zend\Console\Request as ConsoleRequest;
+use Zend\Mvc\MvcEvent;
+use Stakhanovist\Worker\ProcessStrategy\ForwardProcessorStrategy;
+use Stakhanovist\Worker\Processor\ForwardProcessor;
 
 
 class ConsoleWorkerController extends AbstractWorkerController
@@ -26,12 +29,17 @@ class ConsoleWorkerController extends AbstractWorkerController
      */
     protected $serializer;
 
+    protected static $hasPcntl = false;
+
     /**
      *
      */
     public function __construct()
     {
-        pcntl_signal(SIGTERM, [$this, 'pcntlSignalHandler']);
+        if (extension_loaded('pcntl')) {
+            static::$hasPcntl = true;
+            pcntl_signal(SIGTERM, [$this, 'pcntlSignalHandler']);
+        }
     }
 
     /**
@@ -51,7 +59,9 @@ class ConsoleWorkerController extends AbstractWorkerController
      */
     public function isAwaitingStopped()
     {
-        pcntl_signal_dispatch();
+        if (static::$hasPcntl) {
+            pcntl_signal_dispatch();
+        }
         return parent::isAwaitingStopped();
     }
 
