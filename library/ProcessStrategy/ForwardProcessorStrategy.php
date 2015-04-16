@@ -35,7 +35,7 @@ class ForwardProcessorStrategy extends AbstractListenerAggregate
      *
      * @param  ForwardProcessor $processor
      */
-    public function __construct(ForwardProcessor $processor)
+    public function __construct(ForwardProcessor $processor = null)
     {
         $this->processor = $processor;
     }
@@ -47,6 +47,10 @@ class ForwardProcessorStrategy extends AbstractListenerAggregate
      */
     public function getProcessor()
     {
+        if (!$this->processor) {
+            $this->processor = new ForwardProcessor();
+        }
+
         return $this->processor;
     }
 

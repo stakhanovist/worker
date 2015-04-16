@@ -6,9 +6,12 @@
     "require": {
         "php": ">=5.4.0",
         "stakhanovist/queue" : "dev-develop",
+        "zendframework/zend-console": "~2.4",
         "zendframework/zend-stdlib": "~2.4",
+        "zendframework/zend-serializer": "~2.4",
         "zendframework/zend-servicemanager": "~2.4",
         "zendframework/zend-mvc": "~2.4",
+        "zendframework/zend-view": "~2.4",
         "zendframework/zend-eventmanager": "~2.4"
     },
     "require-dev": {

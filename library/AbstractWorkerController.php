@@ -11,23 +11,18 @@ namespace Stakhanovist\Worker;
 
 use Zend\Mvc\Controller\AbstractController;
 use Zend\Mvc\MvcEvent;
-use Zend\Http\Request;
-use Zend\Http\Client;
 use Zend\Stdlib\MessageInterface;
-use Zend\Serializer\Adapter\AdapterInterface as SerializerAdapter;
-use Zend\Serializer\Serializer;
 use Zend\View\Model\ConsoleModel;
-use ZendQueue\Exception;
-use ZendQueue\Queue;
-use ZendQueue\Parameter\ReceiveParameters;
-use ZendQueue\Controller\Message\Forward;
-use ZendQueue\Controller\Message\WorkerMessageInterface;
-use ZendQueue\Controller\Message\WorkerExit;
+use Stakhanovist\Queue\Exception;
+use Stakhanovist\Queue\Queue;
+use Stakhanovist\Queue\Parameter\ReceiveParameters;
 use Zend\Mvc\InjectApplicationEventInterface;
 use Zend\Mvc\Router\RouteMatch;
 use Stakhanovist\Worker\ProcessStrategy\ForwardProcessorStrategy;
 use Stakhanovist\Worker\Processor\ForwardProcessor;
 use Stakhanovist\Worker\Processor\ProcessorInterface;
+use Stakhanovist\Queue\QueueClientInterface;
+use Stakhanovist\Queue\Parameter\ReceiveParametersInterface;
 
 
 /**
@@ -42,33 +37,11 @@ abstract class AbstractWorkerController extends AbstractController
      */
     protected $processEvent;
 
-
     /**
-     * @var SerializerAdapter
+     *
+     * @var bool
      */
-    protected $serializer;
-
-
-    /**
-     * @param SerializerAdapter $adapter
-     * @return AbstractWorkerController
-     */
-    public function setSerializer(SerializerAdapter $adapter)
-    {
-        $this->serializer = $adapter;
-        return $this;
-    }
-
-    /**
-     * @return SerializerAdapter
-     */
-    public function getSerializer()
-    {
-        if (null === $this->serializer) {
-            $this->serializer = Serializer::factory('PhpSerialize');
-        }
-        return $this->serializer;
-    }
+    protected $await;
 
     /**
      * Execute the request
@@ -88,10 +61,6 @@ abstract class AbstractWorkerController extends AbstractController
             throw new \Zend\Mvc\Exception\DomainException('Missing route matches; unsure how to retrieve action');
         }
 
-
-        $this->registerDefaultProcessStrategy(); //TEMP
-
-
         $action = $routeMatch->getParam('action', null);
 
         if ($action) {
@@ -102,14 +71,12 @@ abstract class AbstractWorkerController extends AbstractController
             case 'process':
                 $message = $routeMatch->getParam('message', null);
 
-                if(is_string($message)) {
-                    $message = $this->getSerializer()->unserialize(base64_decode($message));
-                }
-
                 if($message instanceof MessageInterface) {
                     $result = $this->process($message);
                 } else {
-                    $result = $this->createConsoleErrorModel('Missing or invalid message');
+                    throw new \InvalidArgumentException(
+                        'Missing or invalid message type: must be an instace of '. MessageInterface::class
+                    );
                 }
                 break;
 
@@ -122,15 +89,17 @@ abstract class AbstractWorkerController extends AbstractController
                     $queue = $this->getServiceLocator()->get($queue);
                 }
 
-                if (!$queue instanceof \ZendQueue\Queue) {
-                    throw new \InvalidArgumentException('Invalid queue param type: must be a string or an instace of \ZendQueue\Queue');
+                if (!$queue instanceof QueueClientInterface) {
+                    throw new \InvalidArgumentException(
+                        'Invalid queue param type: must be a string or an instace of '. QueueClientInterface::class
+                    );
                 }
 
                 $recvParams = $routeMatch->getParam('receiveParameters', null);
 
                 if ($recvParams === null) {
                     $params = null;
-                } else if ($recvParams instanceof ReceiveParameters) {
+                } else if ($recvParams instanceof ReceiveParametersInterface) {
                     $params = $recvParams;
                 } else if (is_string($recvParams)) {
                     $params = new ReceiveParameters();
@@ -139,14 +108,18 @@ abstract class AbstractWorkerController extends AbstractController
                     $params = new ReceiveParameters();
                     $params->fromArray($recvParams);
                 } else {
-                    throw new \InvalidArgumentException('Invalid receiveParameters param type: must be null, an array, a string or an instace of \ZendQueue\Queue');
+                    throw new \InvalidArgumentException(
+                        'Invalid receiveParameters param type: must be null, an array, a string or an instace of '. QueueClientInterface::class
+                    );
                 }
 
                 $result = $this->{$action}($queue, $params);
                 break;
 
             default:
-                $result = $this->createConsoleErrorModel('Invalid action');
+                throw new \InvalidArgumentException(
+                    sprintf('Invalid action "%s". Only "process", "receive", "await" are allowed', $action)
+                );
         }
 
 
@@ -154,16 +127,6 @@ abstract class AbstractWorkerController extends AbstractController
 
         return $result;
     }
-
-
-    protected function registerDefaultProcessStrategy()
-    {
-        $this->getEventManager()->attach(
-            new ForwardProcessorStrategy(new ForwardProcessor()),
-            100
-        );
-    }
-
 
     /**
      * @param ProcessEvent $e
@@ -231,7 +194,7 @@ abstract class AbstractWorkerController extends AbstractController
      *
      * @return mixed
      */
-    public function receive(Queue $queue, ReceiveParameters $params = null)
+    public function receive(QueueClientInterface $queue, ReceiveParametersInterface $params = null)
     {
         $message = $queue->receive($this->params('maxMessages', 1), $params)->current();
 
@@ -252,10 +215,10 @@ abstract class AbstractWorkerController extends AbstractController
      *
      * @return mixed
      */
-    public function await(Queue $queue, ReceiveParameters $params = null)
+    public function await(QueueClientInterface $queue, ReceiveParametersInterface $params = null)
     {
         $worker = $this;
-        $await = true;
+        $this->await = true;
         $lastResult = array();
 
         $handler = function(MessageInterface $message) use($worker, $queue, &$await, &$lastResult) {
@@ -266,7 +229,7 @@ abstract class AbstractWorkerController extends AbstractController
                 $queue->deleteMessage($message);
             }
 
-            return $await;
+            return !$worker->isAwaitingStopped();
         };
 
 
@@ -275,18 +238,12 @@ abstract class AbstractWorkerController extends AbstractController
         return $lastResult;
     }
 
-
     /**
-     * Create a console view model representing an error
-     *
-     * @return ConsoleModel
+     * @return boolean
      */
-    protected function createConsoleErrorModel($errorMsg)
+    public function isAwaitingStopped()
     {
-        $viewModel = new ConsoleModel();
-        $viewModel->setErrorLevel(1);
-        $viewModel->setResult($errorMsg);
-        return $viewModel;
+        return !$this->await;
     }
 
 }
