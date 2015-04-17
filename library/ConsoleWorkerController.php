@@ -16,6 +16,11 @@ use Zend\Mvc\Router\RouteMatch;
 use Zend\Stdlib\RequestInterface;
 use Zend\Stdlib\ResponseInterface;
 use Zend\Console\Request as ConsoleRequest;
+use Zend\Mvc\MvcEvent;
+use Stakhanovist\Worker\ProcessStrategy\ForwardProcessorStrategy;
+use Stakhanovist\Worker\Processor\ForwardProcessor;
+use Zend\Stdlib\Parameters;
+use Zend\Stdlib\Message;
 
 
 class ConsoleWorkerController extends AbstractWorkerController
@@ -26,12 +31,17 @@ class ConsoleWorkerController extends AbstractWorkerController
      */
     protected $serializer;
 
+    protected static $hasPcntl = false;
+
     /**
      *
      */
     public function __construct()
     {
-        pcntl_signal(SIGTERM, [$this, 'pcntlSignalHandler']);
+        if (extension_loaded('pcntl')) {
+            static::$hasPcntl = true;
+            pcntl_signal(SIGTERM, [$this, 'pcntlSignalHandler']);
+        }
     }
 
     /**
@@ -41,7 +51,7 @@ class ConsoleWorkerController extends AbstractWorkerController
     {
         switch ($signo) {
             case SIGTERM:
-                $this->await = false;
+                $this->stopAwaiting();
                 break;
         }
     }
@@ -51,7 +61,9 @@ class ConsoleWorkerController extends AbstractWorkerController
      */
     public function isAwaitingStopped()
     {
-        pcntl_signal_dispatch();
+        if (static::$hasPcntl) {
+            pcntl_signal_dispatch();
+        }
         return parent::isAwaitingStopped();
     }
 
@@ -86,12 +98,22 @@ class ConsoleWorkerController extends AbstractWorkerController
 
         $routeMatch = $e->getRouteMatch();
         if ($routeMatch instanceof RouteMatch) {
+
             $message = $routeMatch->getParam('message', null);
-            if ($message && is_string($message)) {
-                $routeMatch->setParam(
-                    'message',
-                    $this->getSerializer()->unserialize(base64_decode($message))
-                );
+            if ($message) {
+                if (is_string($message)) {
+                    $parameter = new Parameters();
+                    $parameter->fromString($message);
+                    $message = new Message();
+                    $message->setContent($parameter->get('content'));
+                    $message->setMetadata($parameter->get('metadata', []));
+                    $routeMatch->setParam('message', $message);
+                }
+            } else {
+                stream_set_blocking(STDIN, 0);
+                $stdin = file_get_contents('php://stdin');
+                $message = $this->getSerializer()->unserialize($stdin);
+                $routeMatch->setParam('message', $message);
             }
         }
 

@@ -23,6 +23,8 @@ use Stakhanovist\Worker\Processor\ForwardProcessor;
 use Stakhanovist\Worker\Processor\ProcessorInterface;
 use Stakhanovist\Queue\QueueClientInterface;
 use Stakhanovist\Queue\Parameter\ReceiveParametersInterface;
+use Stakhanovist\Queue\Parameter\SendParametersInterface;
+use Stakhanovist\Queue\Parameter\SendParameters;
 
 
 /**
@@ -69,7 +71,7 @@ abstract class AbstractWorkerController extends AbstractController
 
         switch ($action) {
             case 'process':
-                $message = $routeMatch->getParam('message', null);
+                $message = $routeMatch->getParam('message', $routeMatch->getParam('msg', null));
 
                 if($message instanceof MessageInterface) {
                     $result = $this->process($message);
@@ -80,6 +82,7 @@ abstract class AbstractWorkerController extends AbstractController
                 }
                 break;
 
+            case 'send':
             case 'receive':
             case 'await':
 
@@ -95,30 +98,60 @@ abstract class AbstractWorkerController extends AbstractController
                     );
                 }
 
-                $recvParams = $routeMatch->getParam('receiveParameters', null);
+                if ($action === 'send') {
 
-                if ($recvParams === null) {
-                    $params = null;
-                } else if ($recvParams instanceof ReceiveParametersInterface) {
-                    $params = $recvParams;
-                } else if (is_string($recvParams)) {
-                    $params = new ReceiveParameters();
-                    $params->fromString($recvParams);
-                } else if (is_array($recvParams)) {
-                    $params = new ReceiveParameters();
-                    $params->fromArray($recvParams);
+                    $message = $routeMatch->getParam('message', $routeMatch->getParam('msg', null));
+                    $parameters = $routeMatch->getParam('sendParameters', null);
+
+                    if ($parameters === null) {
+                        $params = null;
+                    } else if ($parameters instanceof SendParametersInterface) {
+                        $params = $parameters;
+                    } else if (is_string($parameters)) {
+                        $params = new SendParameters();
+                        $params->fromString($parameters);
+                    } else if (is_array($parameters)) {
+                        $params = new SendParameters();
+                        $params->fromArray($parameters);
+                    } else {
+                        throw new \InvalidArgumentException(
+                            'Invalid sendParameters param type: must be null, an array, a string or an instace of '. SendParametersInterface::class
+                        );
+                    }
+
+                    $result = $this->send($queue, $message, $params);
                 } else {
-                    throw new \InvalidArgumentException(
-                        'Invalid receiveParameters param type: must be null, an array, a string or an instace of '. QueueClientInterface::class
-                    );
-                }
 
-                $result = $this->{$action}($queue, $params);
+                    $parameters = $routeMatch->getParam('receiveParameters', null);
+
+                    if ($parameters === null) {
+                        $params = null;
+                    } else if ($parameters instanceof ReceiveParametersInterface) {
+                        $params = $parameters;
+                    } else if (is_string($parameters)) {
+                        $params = new ReceiveParameters();
+                        $params->fromString($parameters);
+                    } else if (is_array($parameters)) {
+                        $params = new ReceiveParameters();
+                        $params->fromArray($parameters);
+                    } else {
+                        throw new \InvalidArgumentException(
+                            'Invalid receiveParameters param type: must be null, an array, a string or an instace of '. QueueClientInterface::class
+                        );
+                    }
+
+                    if ($action === 'receive') {
+                        $maxMessages = (int) $routeMatch->getParam('maxMessages', 1);
+                        $result = $this->receive($queue, $maxMessages, $params);
+                    } else {
+                        $result = $this->await($queue, $params);
+                    }
+                }
                 break;
 
             default:
                 throw new \InvalidArgumentException(
-                    sprintf('Invalid action "%s". Only "process", "receive", "await" are allowed', $action)
+                    sprintf('Invalid action "%s". Only "process", "send", "receive", "await" are allowed', $action)
                 );
         }
 
@@ -135,6 +168,7 @@ abstract class AbstractWorkerController extends AbstractController
     public function setProcessEvent(ProcessEvent $e)
     {
         $this->processEvent = $e;
+        $e->setTarget($this);
         return $this;
     }
 
@@ -188,38 +222,60 @@ abstract class AbstractWorkerController extends AbstractController
         return $result;
     }
 
+    /**
+     * Send a message to the queue
+     *
+     * @param QueueClientInterface $queue
+     * @param mixed $message
+     * @param SendParametersInterface $params
+     * @return MessageInterface
+     */
+    public function send(QueueClientInterface $queue, $message, SendParametersInterface $params = null)
+    {
+        $queue->send($message, $params);
+    }
+
 
     /**
-     * Receive and process just one incoming message
+     * Receive and process one or more incoming messages
      *
+     * @param QueueClientInterface $queue
+     * @param int $maxMessages
+     * @param ReceiveParametersInterface $params
      * @return mixed
      */
-    public function receive(QueueClientInterface $queue, ReceiveParametersInterface $params = null)
+    public function receive(QueueClientInterface $queue, $maxMessages = 1, ReceiveParametersInterface $params = null)
     {
-        $message = $queue->receive($this->params('maxMessages', 1), $params)->current();
+        $messages = $queue->receive($maxMessages, $params);
+        $lastResult = [];
 
-        if ($message instanceof MessageInterface) {
+        foreach ($messages as $message) {
+            if ($message instanceof MessageInterface) {
 
-            $response = $this->process($message);
+                $lastResult = $this->process($message);
 
-            if ($queue->canDeleteMessage()) {
-                $queue->deleteMessage($message);
+                if ($queue->canDeleteMessage()) {
+                    $queue->deleteMessage($message);
+                }
             }
-
-            return $response;
+            // TODO: else?
         }
+
+        return $lastResult;
     }
 
     /**
      * Wait for and process incoming messages
      *
-     * @return mixed
+     * @param QueueClientInterface $queue
+     * @param ReceiveParametersInterface $params
+     * @return boolean|\Stakhanovist\Worker\mixed
      */
     public function await(QueueClientInterface $queue, ReceiveParametersInterface $params = null)
     {
         $worker = $this;
         $this->await = true;
-        $lastResult = array();
+        $lastResult = [];
 
         $handler = function(MessageInterface $message) use($worker, $queue, &$await, &$lastResult) {
 
@@ -244,6 +300,14 @@ abstract class AbstractWorkerController extends AbstractController
     public function isAwaitingStopped()
     {
         return !$this->await;
+    }
+
+    /**
+     *
+     */
+    public function stopAwaiting()
+    {
+        $this->await = false;
     }
 
 }
