@@ -168,6 +168,7 @@ abstract class AbstractWorkerController extends AbstractController
     public function setProcessEvent(ProcessEvent $e)
     {
         $this->processEvent = $e;
+        $e->setTarget($this);
         return $this;
     }
 
@@ -299,6 +300,14 @@ abstract class AbstractWorkerController extends AbstractController
     public function isAwaitingStopped()
     {
         return !$this->await;
+    }
+
+    /**
+     *
+     */
+    public function stopAwaiting()
+    {
+        $this->await = false;
     }
 
 }
