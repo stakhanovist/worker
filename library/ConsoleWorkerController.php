@@ -19,6 +19,8 @@ use Zend\Console\Request as ConsoleRequest;
 use Zend\Mvc\MvcEvent;
 use Stakhanovist\Worker\ProcessStrategy\ForwardProcessorStrategy;
 use Stakhanovist\Worker\Processor\ForwardProcessor;
+use Zend\Stdlib\Parameters;
+use Zend\Stdlib\Message;
 
 
 class ConsoleWorkerController extends AbstractWorkerController
@@ -49,7 +51,7 @@ class ConsoleWorkerController extends AbstractWorkerController
     {
         switch ($signo) {
             case SIGTERM:
-                $this->await = false;
+                $this->stopAwaiting();
                 break;
         }
     }
@@ -96,13 +98,22 @@ class ConsoleWorkerController extends AbstractWorkerController
 
         $routeMatch = $e->getRouteMatch();
         if ($routeMatch instanceof RouteMatch) {
-            $isSerialized = $routeMatch->getParam('serialized', null);
-            $message      = $routeMatch->getParam('message', null);
-            if ($isSerialized && is_string($message)) {
-                $routeMatch->setParam(
-                    'message',
-                    $this->getSerializer()->unserialize(base64_decode($message)) // TODO: improve
-                );
+
+            $message = $routeMatch->getParam('message', null);
+            if ($message) {
+                if (is_string($message)) {
+                    $parameter = new Parameters();
+                    $parameter->fromString($message);
+                    $message = new Message();
+                    $message->setContent($parameter->get('content'));
+                    $message->setMetadata($parameter->get('metadata', []));
+                    $routeMatch->setParam('message', $message);
+                }
+            } else {
+                stream_set_blocking(STDIN, 0);
+                $stdin = file_get_contents('php://stdin');
+                $message = $this->getSerializer()->unserialize($stdin);
+                $routeMatch->setParam('message', $message);
             }
         }
 
