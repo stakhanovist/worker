@@ -255,7 +255,7 @@ abstract class AbstractWorkerController extends AbstractController
                 $lastResult = $this->process($message);
 
                 if ($queue->canDeleteMessage()) {
-                    $queue->deleteMessage($message);
+                    $queue->delete($message);
                 }
             }
             // TODO: else?
@@ -282,7 +282,7 @@ abstract class AbstractWorkerController extends AbstractController
             $lastResult = $worker->process($message);
 
             if ($queue->canDeleteMessage()) {
-                $queue->deleteMessage($message);
+                $queue->delete($message);
             }
 
             return !$worker->isAwaitingStopped();
