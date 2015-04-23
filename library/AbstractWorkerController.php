@@ -301,7 +301,7 @@ abstract class AbstractWorkerController extends AbstractController
 
         $callbackHandler = $queue->getEventManager()->attach(QueueEvent::EVENT_RECEIVE, $callback);
 
-        $queue->await($params, $handler);
+        $queue->await($params);
 
         $queue->getEventManager()->detach($callbackHandler);
 
