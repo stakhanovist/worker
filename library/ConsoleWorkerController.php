@@ -62,6 +62,7 @@ class ConsoleWorkerController extends AbstractWorkerController
     public function isAwaitingStopped()
     {
         if (static::$hasPcntl) {
+            // TODO: could be handled with QueueEvent::EVENT_IDLE
             pcntl_signal_dispatch();
         }
         return parent::isAwaitingStopped();

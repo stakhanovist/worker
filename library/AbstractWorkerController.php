@@ -25,6 +25,7 @@ use Stakhanovist\Queue\QueueClientInterface;
 use Stakhanovist\Queue\Parameter\ReceiveParametersInterface;
 use Stakhanovist\Queue\Parameter\SendParametersInterface;
 use Stakhanovist\Queue\Parameter\SendParameters;
+use Stakhanovist\Queue\QueueEvent;
 
 
 /**
@@ -267,6 +268,7 @@ abstract class AbstractWorkerController extends AbstractController
     /**
      * Wait for and process incoming messages
      *
+     * TODO: handle idle
      * @param QueueClientInterface $queue
      * @param ReceiveParametersInterface $params
      * @return boolean|\Stakhanovist\Worker\mixed
@@ -277,19 +279,32 @@ abstract class AbstractWorkerController extends AbstractController
         $this->await = true;
         $lastResult = [];
 
-        $handler = function(MessageInterface $message) use($worker, $queue, &$await, &$lastResult) {
+        $callback = function(QueueEvent $event) use($worker, $queue, &$lastResult) {
 
-            $lastResult = $worker->process($message);
+            $messages = $event->getMessages();
 
-            if ($queue->canDeleteMessage()) {
-                $queue->delete($message);
+            foreach ($messages as $message) {
+                $lastResult = $worker->process($message);
+
+                if ($queue->canDeleteMessage()) {
+                    $queue->delete($message);
+                }
+            }
+
+            if ($worker->isAwaitingStopped()) {
+                $event->stopAwait(true);
             }
 
             return !$worker->isAwaitingStopped();
         };
 
 
+        $callbackHandler = $queue->getEventManager()->attach(QueueEvent::EVENT_RECEIVE, $callback);
+
         $queue->await($params, $handler);
+
+        $queue->getEventManager()->detach($callbackHandler);
+
 
         return $lastResult;
     }
