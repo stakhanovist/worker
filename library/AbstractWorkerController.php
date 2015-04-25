@@ -72,7 +72,7 @@ abstract class AbstractWorkerController extends AbstractController
 
         switch ($action) {
             case 'process':
-                $message = $routeMatch->getParam('message', $routeMatch->getParam('msg', null));
+                $message = $routeMatch->getParam('message', null);
 
                 if($message instanceof MessageInterface) {
                     $result = $this->process($message);
@@ -101,7 +101,7 @@ abstract class AbstractWorkerController extends AbstractController
 
                 if ($action === 'send') {
 
-                    $message = $routeMatch->getParam('message', $routeMatch->getParam('msg', null));
+                    $message = $routeMatch->getParam('message', null);
                     $parameters = $routeMatch->getParam('sendParameters', null);
 
                     if ($parameters === null) {
