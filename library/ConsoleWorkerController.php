@@ -21,6 +21,7 @@ use Stakhanovist\Worker\ProcessStrategy\ForwardProcessorStrategy;
 use Stakhanovist\Worker\Processor\ForwardProcessor;
 use Zend\Stdlib\Parameters;
 use Zend\Stdlib\Message;
+use Zend\Stdlib\MessageInterface;
 
 
 class ConsoleWorkerController extends AbstractWorkerController
@@ -31,6 +32,11 @@ class ConsoleWorkerController extends AbstractWorkerController
      */
     protected $serializer;
 
+    protected $cliPassthru;
+
+    /**
+     * @var bool
+     */
     protected static $hasPcntl = false;
 
     /**
@@ -116,6 +122,16 @@ class ConsoleWorkerController extends AbstractWorkerController
                 $message = $this->getSerializer()->unserialize($stdin);
                 $routeMatch->setParam('message', $message);
             }
+
+            $cliPassthru = $routeMatch->getParam('cli-passthru', null);
+            if ($cliPassthru) {
+                $this->cliPassthru = sprintf(
+                    '%s -f %s -- %s',
+                    PHP_BINARY,
+                    realpath($_SERVER['PHP_SELF']),
+                    $cliPassthru
+                );
+            }
         }
 
         return parent::onDispatch($e);
@@ -136,6 +152,20 @@ class ConsoleWorkerController extends AbstractWorkerController
     }
 
     /**
+     * {@inheritdoc}
+     */
+    public function process(MessageInterface $message)
+    {
+        if ($this->cliPassthru) {
+            return $this->cliPassthru(
+                $this->cliPassthru,
+                $this->getSerializer()->serialize($message)
+            );
+        }
+        return parent::process($message);
+    }
+
+    /**
      *
      */
     protected function registerDefaultProcessStrategy()
@@ -144,6 +174,43 @@ class ConsoleWorkerController extends AbstractWorkerController
             new ForwardProcessorStrategy(new ForwardProcessor()),
             100
         );
+    }
+
+    /**
+     * Execute a shell $command sending $stdin to the input pipe, then echo the passthru output
+     *
+     * @param string $command
+     * @param string $stdin
+     * @return int
+     */
+    protected function cliPassthru($command, $stdin)
+    {
+        $descriptorspec = array(
+            0 => array("pipe", "r"),  // stdin is a pipe that the child will read from
+            1 => array("pipe", "wb"),  // stdout is a pipe that the child will write to
+        );
+
+        $process = proc_open($command, $descriptorspec, $pipes);
+
+        if (is_resource($process)) {
+            // $pipes now looks like this:
+            // 0 => writeable handle connected to child stdin
+            // 1 => readable handle connected to child stdout
+
+            fwrite($pipes[0], $stdin);
+            fclose($pipes[0]);
+
+            // realtime output all remaining data
+            fpassthru($pipes[1]);
+
+            fclose($pipes[1]);
+
+            // It is important that you close any pipes before calling
+            // proc_close in order to avoid a deadlock
+            $returnValue = proc_close($process);
+
+            return $returnValue;
+        }
     }
 
 }
