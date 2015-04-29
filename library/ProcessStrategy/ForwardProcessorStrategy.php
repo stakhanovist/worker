@@ -82,12 +82,14 @@ class ForwardProcessorStrategy extends AbstractListenerAggregate
      * The result is rendered triggering a "render" event on a cloned MvcEvent,
      * simulating the usual MVC render flow.
      *
+     * @todo investigate if simulation works in all cases
      * @param ProcessEvent $e
      */
     public function postProcess(ProcessEvent $e)
     {
-
         $appEvent       = clone $e->getWorker()->getEvent();
+        $appEvent->setTarget($appEvent->getApplication());
+
         $appEvents      = $appEvent->getApplication()->getEventManager();
 
         $appResponse    = clone $appEvent->getResponse();

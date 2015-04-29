@@ -5,7 +5,7 @@
     "license": "BSD-2-Clause",
     "require": {
         "php": ">=5.4.0",
-        "stakhanovist/queue" : "~0.1.1",
+        "stakhanovist/queue" : "~0.2.0@dev",
         "zendframework/zend-console": "~2.4",
         "zendframework/zend-stdlib": "~2.4",
         "zendframework/zend-serializer": "~2.4",
